@@ -1,0 +1,1864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>KinWeave</title>
+
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="KinWeave">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+
+<script>
+/* ======================================================================
+   SELF-HEAL: kill any service worker / cache left over from a previous
+   broken upload. This runs before anything else.
+   ====================================================================== */
+(function () {
+  try {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations()
+        .then(function (rs) { rs.forEach(function (r) { r.unregister(); }); })
+        .catch(function () {});
+    }
+    if (window.caches && caches.keys) {
+      caches.keys()
+        .then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); })
+        .catch(function () {});
+    }
+  } catch (e) {}
+})();
+
+/* ======================================================================
+   CRASH OVERLAY: catches errors from the very first line onward.
+   ====================================================================== */
+(function () {
+  var seen = [];
+
+  function paint() {
+    var box = document.getElementById('crashBox');
+    if (!box || !seen.length) return;
+    document.getElementById('crashList').innerHTML = seen.map(function (e) {
+      return '<p class="err"><b>' + e.t + '</b>\n' + e.d + '</p>';
+    }).join('');
+    box.hidden = false;
+  }
+
+  function show(title, detail) {
+    seen.push({ t: title, d: detail });
+    if (document.getElementById('crashBox')) paint();
+    else document.addEventListener('DOMContentLoaded', paint);
+  }
+
+  window.addEventListener('error', function (e) {
+    if (e.target && e.target !== window && e.target.tagName) {
+      show('Failed to load ' + e.target.tagName.toLowerCase(),
+           (e.target.src || e.target.href || '(unknown url)'));
+      return;
+    }
+    show(e.message || 'Script error',
+         (e.filename || '?') + '  line ' + (e.lineno || '?'));
+  }, true);
+
+  window.addEventListener('unhandledrejection', function (e) {
+    show('Unhandled promise rejection',
+         String((e.reason && (e.reason.stack || e.reason.message)) || e.reason));
+  });
+
+  window.addEventListener('load', function () {
+    setTimeout(function () {
+      var list = document.getElementById('peopleList');
+      if (list && list.children.length === 0 && !seen.length) {
+        show('Scripts ran but drew nothing',
+             'No error was thrown but the people list is empty.');
+      }
+    }, 1500);
+  });
+})();
+</script>
+
+<style>
+:root{
+  --bg:#0e1117; --bg2:#151a23; --bg3:#1c2330; --line:#28303d;
+  --txt:#e6e9ef; --muted:#8b95a7; --accent:#5eead4; --accent2:#818cf8;
+  --danger:#f87171; --radius:10px; --topbar-h:62px; --bottomnav-h:0px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif;
+  overflow:hidden;overscroll-behavior:none}
+h1,h2,h3{margin:0;font-weight:600}
+button{font:inherit;cursor:pointer}
+input,select,textarea{font:inherit}
+
+.wide-only{display:inline}
+.narrow-only{display:none}
+.drawer-btn{display:none}
+.drawer-close{display:none}
+
+.topbar{display:flex;align-items:center;gap:18px;padding:10px 16px;
+  padding-top:calc(10px + env(safe-area-inset-top));
+  background:var(--bg2);border-bottom:1px solid var(--line);
+  height:calc(var(--topbar-h) + env(safe-area-inset-top))}
+.brand{display:flex;align-items:center;gap:10px;min-width:190px}
+.brand-mark{width:34px;height:34px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:#0e1117;font-size:18px;border-radius:9px;font-weight:700}
+.brand h1{font-size:16px}
+.brand p{margin:0;font-size:11px;color:var(--muted)}
+
+.tabs{display:flex;gap:4px;background:var(--bg3);padding:4px;border-radius:var(--radius)}
+.tab{background:transparent;border:0;color:var(--muted);padding:7px 14px;
+  border-radius:7px;font-size:13px;display:flex;align-items:center;gap:6px}
+.tab .ti{display:none}
+.tab.active{background:var(--bg);color:var(--accent)}
+
+.topbar-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+#searchBox{background:var(--bg3);border:1px solid var(--line);color:var(--txt);
+  padding:7px 11px;border-radius:8px;width:170px;outline:none}
+#searchBox:focus{border-color:var(--accent2)}
+
+.btn{background:var(--bg3);border:1px solid var(--line);color:var(--txt);
+  padding:7px 13px;border-radius:8px;white-space:nowrap}
+.btn:hover{border-color:var(--accent2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#07231f;font-weight:600}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--danger);border-color:#4a2626}
+.btn.tiny{padding:4px 9px;font-size:12px}
+.icon-btn{background:none;border:0;color:var(--muted);font-size:18px;padding:2px 6px}
+.icon-btn:hover{color:var(--txt)}
+
+.menu-wrap{position:relative}
+.menu{position:absolute;right:0;top:110%;z-index:60;background:var(--bg3);
+  border:1px solid var(--line);border-radius:9px;padding:5px;min-width:190px;
+  box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.menu button{display:block;width:100%;text-align:left;background:none;border:0;
+  color:var(--txt);padding:10px;border-radius:6px;font-size:13px}
+.menu button:hover{background:var(--bg)}
+.menu button.danger{color:var(--danger)}
+
+.layout{display:grid;grid-template-columns:230px 1fr 300px;
+  height:calc(100% - var(--topbar-h) - env(safe-area-inset-top))}
+.sidebar,.detail{background:var(--bg2);overflow-y:auto;-webkit-overflow-scrolling:touch}
+.sidebar{border-right:1px solid var(--line)}
+.detail{border-left:1px solid var(--line);padding:14px;position:relative}
+.stage{position:relative;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+
+.sidebar-head{display:flex;align-items:center;gap:8px;padding:12px 14px;
+  border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg2);z-index:5}
+.sidebar-head h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);flex:1}
+.count{background:var(--bg3);padding:2px 8px;border-radius:20px;font-size:11px;color:var(--muted)}
+
+.people-list{list-style:none;margin:0;padding:6px}
+.people-list li{display:flex;align-items:center;gap:9px;padding:9px;border-radius:8px;cursor:pointer}
+.people-list li:hover{background:var(--bg3)}
+.people-list li.sel{background:var(--bg3);box-shadow:inset 2px 0 0 var(--accent)}
+.people-list li.dim{opacity:.3}
+.pl-name{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl-sub{font-size:11px;color:var(--muted)}
+
+.avatar{width:30px;height:30px;border-radius:50%;flex:none;background:var(--bg);
+  display:grid;place-items:center;font-size:11px;font-weight:700;color:#0e1117;overflow:hidden}
+.avatar img{width:100%;height:100%;object-fit:cover}
+
+.drawer-scrim{position:fixed;inset:0;z-index:40;background:rgba(5,8,13,.6)}
+.drawer-scrim[hidden]{display:none}
+
+.view{flex:1;display:flex;flex-direction:column;min-height:0}
+.view[hidden]{display:none}
+.stage-toolbar{display:flex;align-items:center;gap:14px;padding:8px 14px;
+  border-bottom:1px solid var(--line);background:var(--bg2);flex:none;overflow-x:auto}
+.stage-toolbar.wrap{flex-wrap:wrap;overflow-x:visible}
+.spacer{flex:1;min-width:8px}
+.chk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
+.chk input{accent-color:var(--accent)}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+
+.canvas{flex:1;width:100%;display:block;cursor:grab;touch-action:none;
+  background:radial-gradient(circle at 1px 1px,#1f2735 1px,transparent 0) 0 0/26px 26px}
+.canvas.dragging{cursor:grabbing}
+
+.empty-hint{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  color:var(--muted);text-align:center;max-width:340px;font-size:13px;padding:0 20px}
+
+.type-filters{display:flex;flex-wrap:wrap;gap:6px}
+.tf{display:flex;align-items:center;gap:6px;background:var(--bg3);
+  border:1px solid var(--line);padding:4px 10px;border-radius:20px;
+  font-size:12px;color:var(--muted)}
+.tf.on{color:var(--txt)}
+.tf .dot{width:9px;height:9px;border-radius:50%;flex:none}
+.tf.off .dot{opacity:.25}
+
+.gallery-grid{flex:1;overflow-y:auto;padding:16px;display:grid;gap:14px;
+  grid-template-columns:repeat(auto-fill,minmax(180px,1fr));align-content:start}
+.gcard{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius);
+  overflow:hidden;cursor:pointer}
+.gcard:hover{border-color:var(--accent2)}
+.gcard-img{aspect-ratio:1;background:var(--bg3);position:relative}
+.gcard-img img{width:100%;height:100%;object-fit:cover;display:block}
+.gcard-img .ph{width:100%;height:100%;display:grid;place-items:center;color:var(--muted);font-size:30px}
+.gcard-badge{position:absolute;right:7px;bottom:7px;background:rgba(0,0,0,.72);
+  padding:2px 8px;border-radius:20px;font-size:11px}
+.gcard-body{padding:9px 11px}
+.gcard-body strong{display:block;font-size:13px}
+.gcard-body span{font-size:11px;color:var(--muted)}
+
+.table-wrap{flex:1;overflow:auto}
+.dir-table{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
+.dir-table th,.dir-table td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line)}
+.dir-table th{position:sticky;top:0;background:var(--bg2);color:var(--muted);
+  font-size:11px;text-transform:uppercase;cursor:pointer;z-index:3;white-space:nowrap}
+.dir-table tbody tr:hover{background:var(--bg2)}
+
+.detail-empty{color:var(--muted);font-size:13px;padding:20px 4px;text-align:center}
+.detail-close{position:absolute;top:8px;right:10px;font-size:24px;z-index:6}
+.d-head{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+.d-head .avatar{width:52px;height:52px;font-size:17px}
+.d-head h3{font-size:16px}
+.d-head .sub{font-size:12px;color:var(--muted)}
+.d-actions{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.d-section{margin-bottom:16px}
+.d-section h4{font-size:11px;text-transform:uppercase;letter-spacing:.8px;
+  color:var(--muted);margin:0 0 7px}
+.d-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:12.5px}
+.d-facts dt{color:var(--muted)}
+.d-facts dd{margin:0}
+.d-bio{font-size:12.5px;white-space:pre-wrap;color:#cfd5e0}
+.rel-group{margin-bottom:9px}
+.rel-label{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);margin-bottom:3px}
+.rel-label .dot{width:8px;height:8px;border-radius:50%}
+.rel-item{display:flex;align-items:center;justify-content:space-between;gap:6px;
+  padding:6px 7px;border-radius:6px;font-size:12.5px}
+.rel-item:hover{background:var(--bg3)}
+.rel-item .nm{cursor:pointer}
+.rel-item .nm:hover{color:var(--accent)}
+.rel-item .note{color:var(--muted);font-size:11px}
+.rel-item .x{background:none;border:0;color:var(--muted);font-size:16px;padding:0 6px}
+.rel-item .x:hover{color:var(--danger)}
+.d-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.d-photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer}
+
+.modal-backdrop{position:fixed;inset:0;z-index:100;background:rgba(5,8,13,.72);
+  display:grid;place-items:center;padding:20px}
+.modal-backdrop[hidden]{display:none}
+.modal{background:var(--bg2);border:1px solid var(--line);border-radius:14px;
+  width:min(620px,100%);max-height:88vh;display:flex;flex-direction:column}
+.modal.narrow{width:min(430px,100%)}
+.modal header{display:flex;align-items:center;justify-content:space-between;
+  padding:14px 18px;border-bottom:1px solid var(--line);flex:none}
+.modal header h3{font-size:15px}
+.modal-body{padding:16px 18px;overflow-y:auto}
+.modal footer{display:flex;align-items:center;gap:8px;padding:12px 18px;
+  border-top:1px solid var(--line);flex:none}
+.modal label{display:block;margin-bottom:12px;font-size:12px;color:var(--muted)}
+.modal label input,.modal label select,.modal label textarea{display:block;width:100%;
+  margin-top:4px;background:var(--bg);border:1px solid var(--line);color:var(--txt);
+  padding:10px;border-radius:8px;outline:none;resize:vertical;font-size:16px}
+.modal label input:focus,.modal label select:focus,.modal label textarea:focus{border-color:var(--accent2)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+
+.photo-block{border-top:1px solid var(--line);padding-top:12px;margin-top:4px}
+.photo-block-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.photo-strip{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.ps-item{position:relative;width:74px;height:74px;border-radius:8px;overflow:hidden;border:2px solid transparent}
+.ps-item.is-avatar{border-color:var(--accent)}
+.ps-item img{width:100%;height:100%;object-fit:cover;cursor:pointer;display:block}
+.ps-item button{position:absolute;top:2px;right:2px;width:22px;height:22px;
+  background:rgba(0,0,0,.72);border:0;color:#fff;border-radius:50%;
+  font-size:13px;line-height:1;display:grid;place-items:center}
+
+.lightbox{position:fixed;inset:0;z-index:200;background:rgba(3,5,9,.94);display:grid;place-items:center}
+.lightbox[hidden]{display:none}
+.lightbox img{max-width:92vw;max-height:76vh;border-radius:10px}
+.lb-close{position:absolute;top:calc(16px + env(safe-area-inset-top));right:20px;
+  background:none;border:0;color:#fff;font-size:32px;opacity:.75}
+.lb-nav{position:absolute;top:50%;transform:translateY(-50%);
+  background:rgba(255,255,255,.08);border:0;color:#fff;width:48px;height:48px;
+  border-radius:50%;font-size:22px}
+.lb-nav.prev{left:16px}
+.lb-nav.next{right:16px}
+.lb-caption{position:absolute;bottom:calc(22px + env(safe-area-inset-bottom));
+  color:var(--muted);font-size:13px}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);
+  bottom:calc(22px + var(--bottomnav-h) + env(safe-area-inset-bottom));
+  background:var(--bg3);border:1px solid var(--line);padding:11px 18px;
+  border-radius:24px;z-index:300;font-size:13px;max-width:88vw;text-align:center}
+.toast[hidden]{display:none}
+
+.node{cursor:pointer}
+.node:hover rect,.node:hover circle{stroke:var(--accent)}
+.node.sel rect,.node.sel circle{stroke:var(--accent);stroke-width:2.5}
+.node.dim{opacity:.22}
+.node text{pointer-events:none;font-size:12px;fill:var(--txt)}
+.node text.meta{font-size:10px;fill:var(--muted)}
+.edge{fill:none;stroke-linecap:round}
+.edge.dim{opacity:.07}
+
+#crashBox{position:fixed;left:0;right:0;bottom:0;z-index:9999;max-height:60vh;
+  overflow:auto;background:#2a1618;border-top:2px solid #f87171;color:#ffd9d9;
+  font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;padding:12px 14px;
+  padding-bottom:calc(12px + env(safe-area-inset-bottom));user-select:text}
+#crashBox[hidden]{display:none}
+#crashBox h4{margin:0 0 8px;font:600 13px system-ui,sans-serif;color:#fca5a5}
+#crashBox .err{margin:0 0 10px;padding:8px 10px;background:rgba(0,0,0,.3);
+  border-radius:6px;white-space:pre-wrap;word-break:break-word}
+#crashBox .err b{color:#fecaca}
+#crashBox button{background:#f87171;border:0;color:#2a1618;
+  font:600 12px system-ui,sans-serif;padding:8px 14px;border-radius:7px;margin-right:8px}
+#crashBox .hint{color:#e7b4b4;font:12px system-ui,sans-serif;margin:0 0 10px}
+
+@media (max-width:1100px){
+  .layout{grid-template-columns:200px 1fr}
+  .detail{position:fixed;top:0;right:0;bottom:0;width:min(330px,88vw);z-index:50;
+    transform:translateX(100%);transition:transform .22s ease;
+    padding-top:calc(14px + env(safe-area-inset-top));
+    box-shadow:-12px 0 36px rgba(0,0,0,.5)}
+  .detail.open{transform:translateX(0)}
+  .detail .drawer-close{display:block}
+  #btnDrawerDetail{display:block}
+  .brand p{display:none}
+}
+
+@media (max-width:760px){
+  :root{--topbar-h:56px;--bottomnav-h:58px}
+  .wide-only{display:none}
+  .narrow-only{display:inline}
+  .drawer-btn{display:block;font-size:22px;padding:4px 8px}
+  .topbar{gap:8px;padding-left:10px;padding-right:10px}
+  .brand{min-width:0}
+  .brand-text{display:none}
+  .topbar-actions{gap:4px}
+  #searchBox{width:0;flex:1;min-width:0;padding:8px 10px;font-size:16px}
+  .tabs{position:fixed;left:0;right:0;bottom:0;z-index:45;display:flex;gap:0;
+    padding:0;border-radius:0;background:var(--bg2);border-top:1px solid var(--line);
+    padding-bottom:env(safe-area-inset-bottom);
+    height:calc(var(--bottomnav-h) + env(safe-area-inset-bottom))}
+  .tab{flex:1;flex-direction:column;gap:2px;justify-content:center;
+    border-radius:0;padding:6px 0;font-size:10.5px}
+  .tab .ti{display:block;font-size:17px;line-height:1}
+  .tab.active{background:transparent;box-shadow:inset 0 2px 0 var(--accent)}
+  .layout{grid-template-columns:1fr;
+    height:calc(100% - var(--topbar-h) - var(--bottomnav-h)
+           - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
+  .sidebar{position:fixed;top:0;left:0;bottom:0;width:min(290px,84vw);z-index:50;
+    transform:translateX(-100%);transition:transform .22s ease;
+    box-shadow:12px 0 36px rgba(0,0,0,.5)}
+  .sidebar.open{transform:translateX(0)}
+  .sidebar-head{padding-top:calc(12px + env(safe-area-inset-top))}
+  .sidebar .drawer-close{display:block;font-size:24px}
+  .people-list li{padding:11px 9px}
+  .pl-name{font-size:14px}
+  .detail{width:min(330px,90vw)}
+  .stage-toolbar{padding:7px 10px;gap:10px}
+  .gallery-grid{padding:12px;gap:10px;grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+  .modal-backdrop{padding:0;place-items:stretch}
+  .modal,.modal.narrow{width:100%;max-height:100%;border-radius:0;border:0}
+  .modal header{padding-top:calc(14px + env(safe-area-inset-top))}
+  .modal footer{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+  .grid2{grid-template-columns:1fr}
+}
+
+@media (max-width:380px){ #searchBox{display:none} }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="icon-btn drawer-btn" id="btnDrawerPeople">&#9776;</button>
+  <div class="brand">
+    <span class="brand-mark">K</span>
+    <div class="brand-text"><h1>KinWeave</h1><p>Family trees &amp; relationship maps</p></div>
+  </div>
+  <nav class="tabs" id="viewTabs">
+    <button class="tab active" data-view="tree"><span class="ti">&#9696;</span><span>Tree</span></button>
+    <button class="tab" data-view="web"><span class="ti">&#9735;</span><span>Web</span></button>
+    <button class="tab" data-view="gallery"><span class="ti">&#9635;</span><span>Gallery</span></button>
+    <button class="tab" data-view="directory"><span class="ti">&#9776;</span><span>List</span></button>
+  </nav>
+  <div class="topbar-actions">
+    <input type="search" id="searchBox" placeholder="Search people">
+    <button class="btn primary" id="btnAddPerson"><span class="wide-only">+ Person</span><span class="narrow-only">+</span></button>
+    <button class="btn" id="btnAddLink"><span class="wide-only">+ Relationship</span><span class="narrow-only">&#8651;</span></button>
+    <button class="icon-btn drawer-btn" id="btnDrawerDetail">&#9432;</button>
+    <div class="menu-wrap">
+      <button class="btn ghost" id="btnMenu">&#8942;</button>
+      <div class="menu" id="dataMenu" hidden>
+        <button id="btnInstall" hidden>&#11015; Install app</button>
+        <button id="btnExport">Export JSON</button>
+        <button id="btnImport">Import JSON</button>
+        <button id="btnSample">Load sample data</button>
+        <button id="btnClear" class="danger">Clear all data</button>
+      </div>
+    </div>
+    <input type="file" id="importFile" accept="application/json" hidden>
+  </div>
+</header>
+
+<div class="drawer-scrim" id="drawerScrim" hidden></div>
+
+<main class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <h2>People</h2>
+      <span class="count" id="peopleCount">0</span>
+      <button class="icon-btn drawer-close" data-drawer-close="sidebar">&times;</button>
+    </div>
+    <ul class="people-list" id="peopleList"></ul>
+  </aside>
+
+  <section class="stage">
+    <div class="view" id="view-tree">
+      <div class="stage-toolbar">
+        <label class="chk"><input type="checkbox" id="treeShowSpouse" checked> Partners</label>
+        <label class="chk"><input type="checkbox" id="treeShowSibling"> Siblings</label>
+        <label class="chk"><input type="checkbox" id="treeShowDates" checked> Dates</label>
+        <span class="spacer"></span>
+        <button class="btn tiny" data-zoom="tree" data-dir="in">+</button>
+        <button class="btn tiny" data-zoom="tree" data-dir="out">&minus;</button>
+        <button class="btn tiny" data-zoom="tree" data-dir="fit">Fit</button>
+      </div>
+      <svg id="treeSvg" class="canvas"></svg>
+      <p class="empty-hint" id="treeEmpty" hidden>No parent &rarr; child links yet.</p>
+    </div>
+
+    <div class="view" id="view-web" hidden>
+      <div class="stage-toolbar wrap">
+        <div class="type-filters" id="typeFilters"></div>
+        <span class="spacer"></span>
+        <button class="btn tiny" id="btnReheat">Re-layout</button>
+        <button class="btn tiny" data-zoom="web" data-dir="in">+</button>
+        <button class="btn tiny" data-zoom="web" data-dir="out">&minus;</button>
+        <button class="btn tiny" data-zoom="web" data-dir="fit">Fit</button>
+      </div>
+      <svg id="webSvg" class="canvas"></svg>
+    </div>
+
+    <div class="view" id="view-gallery" hidden>
+      <div class="stage-toolbar"><span class="muted" id="galleryStats"></span></div>
+      <div class="gallery-grid" id="galleryGrid"></div>
+    </div>
+
+    <div class="view" id="view-directory" hidden>
+      <div class="table-wrap">
+        <table class="dir-table">
+          <thead><tr>
+            <th data-sort="name">Name</th>
+            <th data-sort="gender">Gender</th>
+            <th data-sort="birth">Born</th>
+            <th data-sort="death">Died</th>
+            <th data-sort="occupation">Role</th>
+            <th data-sort="links">Links</th>
+            <th data-sort="photos">Pics</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="dirBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <aside class="detail" id="detailPanel">
+    <button class="icon-btn drawer-close detail-close" data-drawer-close="detailPanel">&times;</button>
+    <div class="detail-empty" id="detailEmpty"><p>Select a person to see their profile, gallery and relationships.</p></div>
+    <div id="detailBody" hidden></div>
+  </aside>
+</main>
+
+<div class="modal-backdrop" id="personModal" hidden>
+  <div class="modal">
+    <header><h3 id="personModalTitle">Add person</h3>
+      <button class="icon-btn" data-close="personModal">&times;</button></header>
+    <div class="modal-body">
+      <div class="grid2">
+        <label>Full name<input id="pName" type="text" placeholder="e.g. Mara Vendrell"></label>
+        <label>Nickname / title<input id="pNick" type="text" placeholder="e.g. The Elder"></label>
+        <label>Gender<select id="pGender">
+          <option value="unspecified">Unspecified</option>
+          <option value="female">Female</option>
+          <option value="male">Male</option>
+          <option value="nonbinary">Non-binary</option>
+          <option value="other">Other</option>
+        </select></label>
+        <label>Role / occupation<input id="pOccupation" type="text" placeholder="e.g. Blacksmith"></label>
+        <label>Born<input id="pBirth" type="text" placeholder="Year or free text"></label>
+        <label>Died<input id="pDeath" type="text" placeholder="blank if living"></label>
+      </div>
+      <label>Notes / bio<textarea id="pBio" rows="4"></textarea></label>
+      <div class="photo-block">
+        <div class="photo-block-head"><strong>Gallery</strong>
+          <label class="btn tiny">+ Add photos<input type="file" id="pPhotos" accept="image/*" multiple hidden></label>
+        </div>
+        <p class="muted small">Images are downscaled to 640px. Tap one to make it the avatar.</p>
+        <div class="photo-strip" id="photoStrip"></div>
+      </div>
+    </div>
+    <footer>
+      <button class="btn danger ghost" id="btnDeletePerson">Delete</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" data-close="personModal">Cancel</button>
+      <button class="btn primary" id="btnSavePerson">Save</button>
+    </footer>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="linkModal" hidden>
+  <div class="modal narrow">
+    <header><h3>Add relationship</h3>
+      <button class="icon-btn" data-close="linkModal">&times;</button></header>
+    <div class="modal-body">
+      <label>Type<select id="lType"></select></label>
+      <p class="muted small" id="lHint"></p>
+      <label><span id="lFromLabel">From</span><select id="lFrom"></select></label>
+      <label><span id="lToLabel">To</span><select id="lTo"></select></label>
+      <label>Note (optional)<input id="lNote" type="text"></label>
+    </div>
+    <footer><span class="spacer"></span>
+      <button class="btn ghost" data-close="linkModal">Cancel</button>
+      <button class="btn primary" id="btnSaveLink">Add</button>
+    </footer>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-close" id="lbClose">&times;</button>
+  <button class="lb-nav prev" id="lbPrev">&#8249;</button>
+  <img id="lbImg" alt="">
+  <button class="lb-nav next" id="lbNext">&#8250;</button>
+  <div class="lb-caption" id="lbCaption"></div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<div id="crashBox" hidden>
+  <h4>&#9888; Something failed to start</h4>
+  <p class="hint">Copy this text and send it over.</p>
+  <div id="crashList"></div>
+  <button onclick="document.getElementById('crashBox').hidden=true">Dismiss</button>
+  <button onclick="(async()=>{if(navigator.serviceWorker){var r=await navigator.serviceWorker.getRegistrations();for(var x of r)await x.unregister();}if(window.caches){var k=await caches.keys();for(var n of k)await caches.delete(n);}location.reload();})()">Clear cache &amp; reload</button>
+</div>
+
+<script>
+/* ======================================================================
+   KinWeave application
+   ====================================================================== */
+(function () {
+'use strict';
+
+var STORE_KEY = 'kinweave.v1';
+
+var LINK_TYPES = {
+  parent:    { label:'Parent \u2192 Child', short:'parent', color:'#7dd3fc', cat:'family', directed:true,
+               fromLabel:'Parent', toLabel:'Child',
+               hint:'Builds the generational structure in the Tree view.' },
+  spouse:    { label:'Spouse / Partner', short:'partner', color:'#f9a8d4', cat:'family', directed:false,
+               fromLabel:'Person A', toLabel:'Person B',
+               hint:'Drawn as a bond between two people on the same row.' },
+  sibling:   { label:'Sibling', short:'sibling', color:'#a5b4fc', cat:'family', directed:false,
+               fromLabel:'Person A', toLabel:'Person B',
+               hint:'Only needed when siblings share no recorded parent.' },
+  guardian:  { label:'Guardian \u2192 Ward', short:'guardian', color:'#c4b5fd', cat:'social', directed:true,
+               fromLabel:'Guardian', toLabel:'Ward',
+               hint:'Custody, fostering, adoption, protectorship.' },
+  mentor:    { label:'Mentor \u2192 Student', short:'mentor', color:'#67e8f9', cat:'social', directed:true,
+               fromLabel:'Mentor', toLabel:'Student',
+               hint:'Training or apprenticeship.' },
+  friend:    { label:'Friend', short:'friend', color:'#86efac', cat:'social', directed:false,
+               fromLabel:'Person A', toLabel:'Person B', hint:'' },
+  ally:      { label:'Ally', short:'ally', color:'#bef264', cat:'social', directed:false,
+               fromLabel:'Person A', toLabel:'Person B', hint:'' },
+  colleague: { label:'Colleague', short:'colleague', color:'#d4d4d8', cat:'social', directed:false,
+               fromLabel:'Person A', toLabel:'Person B', hint:'' },
+  rival:     { label:'Rival', short:'rival', color:'#fdba74', cat:'social', directed:false,
+               fromLabel:'Person A', toLabel:'Person B', hint:'' },
+  enemy:     { label:'Enemy', short:'enemy', color:'#fca5a5', cat:'social', directed:false,
+               fromLabel:'Person A', toLabel:'Person B', hint:'' }
+};
+
+var GENDER_COLOR = {
+  female:'#f9a8d4', male:'#7dd3fc', nonbinary:'#c4b5fd',
+  other:'#fdba74', unspecified:'#94a3b8'
+};
+
+var NODE_W = 150, NODE_H = 54, GEN_GAP = 118, COL_GAP = 26;
+
+var state = { people: [], links: [], seq: 1 };
+var selectedId = null;
+var currentView = 'tree';
+var searchTerm = '';
+var editingId = null;
+var draftPhotos = [];
+var draftAvatar = 0;
+var typeEnabled = {};
+var dirSort = { key:'name', dir:1 };
+var lightboxSet = [], lightboxIdx = 0, lightboxTitle = '';
+var webNodes = [];
+
+Object.keys(LINK_TYPES).forEach(function (k) { typeEnabled[k] = true; });
+
+function $(s) { return document.querySelector(s); }
+function $$(s) { return Array.prototype.slice.call(document.querySelectorAll(s)); }
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
+  });
+}
+
+function uid(p) { return p + (state.seq++); }
+function person(id) {
+  for (var i = 0; i < state.people.length; i++)
+    if (state.people[i].id === id) return state.people[i];
+  return null;
+}
+function nameOf(id) { var p = person(id); return p ? p.name : '(unknown)'; }
+
+function initials(name) {
+  var parts = String(name || '?').trim().split(/\s+/).slice(0, 2);
+  var out = parts.map(function (w) { return w[0] ? w[0].toUpperCase() : ''; }).join('');
+  return out || '?';
+}
+
+function lifespan(p) {
+  if (!p.birth && !p.death) return '';
+  return (p.birth || '?') + ' \u2013 ' + (p.death || (p.birth ? 'present' : '?'));
+}
+
+function avatarUrl(p) {
+  if (!p || !p.photos || !p.photos.length) return null;
+  return p.photos[Math.min(p.avatar || 0, p.photos.length - 1)];
+}
+
+function matchesSearch(p) {
+  if (!searchTerm) return true;
+  return [p.name, p.nickname, p.occupation, p.bio].join(' ')
+    .toLowerCase().indexOf(searchTerm) !== -1;
+}
+
+var toastTimer = null;
+function toast(msg) {
+  var el = $('#toast');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { el.hidden = true; }, 2400);
+}
+
+function save() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+  catch (e) { toast('Could not save \u2014 storage full. Remove some photos.'); }
+}
+
+function load() {
+  try {
+    var raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return false;
+    var d = JSON.parse(raw);
+    if (!d || !(d.people instanceof Array)) return false;
+    state = {
+      people: d.people,
+      links: (d.links instanceof Array) ? d.links : [],
+      seq: d.seq || (d.people.length + 50)
+    };
+    state.people.forEach(function (p) {
+      p.photos = p.photos || [];
+      p.avatar = p.avatar || 0;
+    });
+    return true;
+  } catch (e) { return false; }
+}
+
+function resizeImage(file, maxPx) {
+  return new Promise(function (resolve) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        var w = img.width, h = img.height;
+        var scale = Math.min(1, maxPx / Math.max(w, h));
+        w = Math.round(w * scale); h = Math.round(h * scale);
+        var cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(cv.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = function () { resolve(null); };
+      img.src = reader.result;
+    };
+    reader.onerror = function () { resolve(null); };
+    reader.readAsDataURL(file);
+  });
+}
+
+function linksOf(id) {
+  return state.links.filter(function (l) { return l.from === id || l.to === id; });
+}
+function parentsOf(id) {
+  return state.links.filter(function (l) { return l.type === 'parent' && l.to === id; })
+    .map(function (l) { return l.from; });
+}
+function childrenOf(id) {
+  return state.links.filter(function (l) { return l.type === 'parent' && l.from === id; })
+    .map(function (l) { return l.to; });
+}
+
+function createsCycle(parentId, childId) {
+  var seen = {}, stack = [parentId];
+  while (stack.length) {
+    var cur = stack.pop();
+    if (cur === childId) return true;
+    if (seen[cur]) continue;
+    seen[cur] = 1;
+    parentsOf(cur).forEach(function (p) { stack.push(p); });
+  }
+  return false;
+}
+
+function addLink(type, from, to, note) {
+  if (!type || !from || !to || from === to) return false;
+  var dup = state.links.some(function (l) {
+    return l.type === type && (
+      (l.from === from && l.to === to) ||
+      (!LINK_TYPES[type].directed && l.from === to && l.to === from));
+  });
+  if (dup) { toast('That relationship already exists.'); return false; }
+  if (type === 'parent' && createsCycle(from, to)) {
+    toast('That would create a loop in the tree.'); return false;
+  }
+  state.links.push({ id: uid('l'), type: type, from: from, to: to, note: note || '' });
+  return true;
+}
+
+function removeLink(id) {
+  state.links = state.links.filter(function (l) { return l.id !== id; });
+}
+
+function removePerson(id) {
+  state.people = state.people.filter(function (p) { return p.id !== id; });
+  state.links = state.links.filter(function (l) { return l.from !== id && l.to !== id; });
+  if (selectedId === id) selectedId = null;
+}
+
+function renderAll() {
+  renderPeopleList();
+  renderDetail();
+  renderTypeFilters();
+  if (currentView === 'tree') renderTree();
+  if (currentView === 'web') renderWeb();
+  if (currentView === 'gallery') renderGallery();
+  if (currentView === 'directory') renderDirectory();
+}
+
+function persistAndRender() { save(); renderAll(); }
+
+function avatarHtml(p, cls) {
+  var url = avatarUrl(p);
+  if (url) return '<span class="' + cls + '"><img src="' + url + '" alt=""></span>';
+  return '<span class="' + cls + '" style="background:' +
+    (GENDER_COLOR[p.gender] || GENDER_COLOR.unspecified) + '">' +
+    esc(initials(p.name)) + '</span>';
+}
+
+function renderPeopleList() {
+  var ul = $('#peopleList');
+  $('#peopleCount').textContent = state.people.length;
+  var sorted = state.people.slice().sort(function (a, b) {
+    return a.name.localeCompare(b.name);
+  });
+
+  ul.innerHTML = sorted.map(function (p) {
+    var cls = (p.id === selectedId ? 'sel ' : '') + (matchesSearch(p) ? '' : 'dim');
+    var sub = p.nickname || lifespan(p) || p.occupation || '';
+    return '<li class="' + cls + '" data-id="' + p.id + '">' + avatarHtml(p, 'avatar') +
+      '<span style="min-width:0"><span class="pl-name">' + esc(p.name) + '</span>' +
+      (sub ? '<br><span class="pl-sub">' + esc(sub) + '</span>' : '') +
+      '</span></li>';
+  }).join('');
+
+  $$('#peopleList li').forEach(function (li) {
+    li.addEventListener('click', function () { selectPerson(li.dataset.id); });
+    li.addEventListener('dblclick', function () { openPersonModal(li.dataset.id); });
+  });
+}
+
+function selectPerson(id) {
+  selectedId = id;
+  renderPeopleList();
+  renderDetail();
+  if (currentView === 'tree') markSelection('#treeSvg');
+  if (currentView === 'web') renderWeb();
+}
+
+function markSelection(sel) {
+  var svg = $(sel);
+  if (!svg) return;
+  svg.querySelectorAll('.node').forEach(function (n) {
+    if (n.dataset.id === selectedId) n.classList.add('sel');
+    else n.classList.remove('sel');
+  });
+}
+
+function renderDetail() {
+  var empty = $('#detailEmpty'), body = $('#detailBody');
+  var p = person(selectedId);
+  if (!p) { empty.hidden = false; body.hidden = true; body.innerHTML = ''; return; }
+  empty.hidden = true; body.hidden = false;
+
+  var html = '<div class="d-head">' + avatarHtml(p, 'avatar') + '<div><h3>' +
+    esc(p.name) + '</h3>' +
+    (p.nickname ? '<div class="sub">' + esc(p.nickname) + '</div>' : '') +
+    (lifespan(p) ? '<div class="sub">' + esc(lifespan(p)) + '</div>' : '') +
+    '</div></div>';
+
+  html += '<div class="d-actions">' +
+    '<button class="btn tiny" id="dEdit">Edit</button>' +
+    '<button class="btn tiny" id="dLink">Add link</button>' +
+    '<button class="btn tiny danger ghost" id="dDel">Delete</button></div>';
+
+  var facts = [];
+  if (p.gender && p.gender !== 'unspecified') facts.push(['Gender', p.gender]);
+  if (p.occupation) facts.push(['Role', p.occupation]);
+  if (p.birth) facts.push(['Born', p.birth]);
+  if (p.death) facts.push(['Died', p.death]);
+  if (facts.length) {
+    html += '<div class="d-section"><h4>Details</h4><dl class="d-facts">' +
+      facts.map(function (f) {
+        return '<dt>' + esc(f[0]) + '</dt><dd>' + esc(f[1]) + '</dd>';
+      }).join('') + '</dl></div>';
+  }
+
+  if (p.bio) {
+    html += '<div class="d-section"><h4>Notes</h4><div class="d-bio">' +
+      esc(p.bio) + '</div></div>';
+  }
+
+  var mine = linksOf(p.id);
+  if (mine.length) {
+    html += '<div class="d-section"><h4>Relationships (' + mine.length + ')</h4>';
+    Object.keys(LINK_TYPES).forEach(function (type) {
+      var t = LINK_TYPES[type];
+      var rows = mine.filter(function (l) { return l.type === type; });
+      if (!rows.length) return;
+      html += '<div class="rel-group"><div class="rel-label">' +
+        '<span class="dot" style="background:' + t.color + '"></span>' +
+        esc(t.label) + '</div>';
+      rows.forEach(function (l) {
+        var otherId = l.from === p.id ? l.to : l.from;
+        var role = '';
+        if (t.directed) {
+          role = l.from === p.id ? ' (' + t.toLabel.toLowerCase() + ')'
+                                 : ' (' + t.fromLabel.toLowerCase() + ')';
+        }
+        html += '<div class="rel-item"><span>' +
+          '<span class="nm" data-goto="' + otherId + '">' + esc(nameOf(otherId)) + '</span>' +
+          '<span class="note">' + esc(role) +
+          (l.note ? ' \u2014 ' + esc(l.note) : '') + '</span></span>' +
+          '<button class="x" data-unlink="' + l.id + '">&times;</button></div>';
+      });
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  if (p.photos && p.photos.length) {
+    html += '<div class="d-section"><h4>Gallery (' + p.photos.length + ')</h4>' +
+      '<div class="d-photos">' +
+      p.photos.map(function (src, i) {
+        return '<img src="' + src + '" data-photo="' + i + '" alt="">';
+      }).join('') + '</div></div>';
+  }
+
+  body.innerHTML = html;
+
+  $('#dEdit').onclick = function () { openPersonModal(p.id); };
+  $('#dLink').onclick = function () { openLinkModal(p.id); };
+  $('#dDel').onclick = function () {
+    if (confirm('Delete ' + p.name + ' and all their relationships?')) {
+      removePerson(p.id); persistAndRender(); toast('Deleted.');
+    }
+  };
+  body.querySelectorAll('[data-goto]').forEach(function (el) {
+    el.onclick = function () { selectPerson(el.dataset.goto); };
+  });
+  body.querySelectorAll('[data-unlink]').forEach(function (el) {
+    el.onclick = function () { removeLink(el.dataset.unlink); persistAndRender(); };
+  });
+  body.querySelectorAll('[data-photo]').forEach(function (el) {
+    el.onclick = function () { openLightbox(p.photos, +el.dataset.photo, p.name); };
+  });
+}
+
+function computeDepths() {
+  var depth = {}, visiting = {};
+  function d(id) {
+    if (depth[id] !== undefined) return depth[id];
+    if (visiting[id]) return 0;
+    visiting[id] = true;
+    var ps = parentsOf(id);
+    var v = 0;
+    if (ps.length) {
+      v = Math.max.apply(null, ps.map(d)) + 1;
+    }
+    visiting[id] = false;
+    depth[id] = v;
+    return v;
+  }
+  state.people.forEach(function (p) { d(p.id); });
+
+  for (var pass = 0; pass < 4; pass++) {
+    var moved = false;
+    state.links.filter(function (l) { return l.type === 'spouse'; }).forEach(function (l) {
+      var m = Math.max(depth[l.from] || 0, depth[l.to] || 0);
+      if (depth[l.from] !== m) { depth[l.from] = m; moved = true; }
+      if (depth[l.to] !== m) { depth[l.to] = m; moved = true; }
+    });
+    if (!moved) break;
+  }
+  return depth;
+}
+
+function orderRows(depth) {
+  var rows = {};
+  state.people.forEach(function (p) {
+    var d = depth[p.id] || 0;
+    if (!rows[d]) rows[d] = [];
+    rows[d].push(p.id);
+  });
+  var levels = Object.keys(rows).map(Number).sort(function (a, b) { return a - b; });
+  var posOf = {};
+
+  function reindex() {
+    levels.forEach(function (d) {
+      rows[d].forEach(function (id, i) { posOf[id] = i; });
+    });
+  }
+  reindex();
+
+  function avg(arr) {
+    if (!arr.length) return null;
+    var s = 0, n = 0;
+    arr.forEach(function (id) {
+      if (posOf[id] !== undefined) { s += posOf[id]; n++; }
+    });
+    return n ? s / n : null;
+  }
+
+  function cmp(getter) {
+    return function (a, b) {
+      var av = avg(getter(a)), bv = avg(getter(b));
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return -1;
+      return av - bv;
+    };
+  }
+
+  for (var it = 0; it < 8; it++) {
+    for (var i = 1; i < levels.length; i++) { rows[levels[i]].sort(cmp(parentsOf)); }
+    reindex();
+    for (var j = levels.length - 2; j >= 0; j--) { rows[levels[j]].sort(cmp(childrenOf)); }
+    reindex();
+  }
+
+  levels.forEach(function (d) {
+    var row = rows[d];
+    state.links.filter(function (l) { return l.type === 'spouse'; }).forEach(function (l) {
+      var i = row.indexOf(l.from), j = row.indexOf(l.to);
+      if (i < 0 || j < 0 || Math.abs(i - j) === 1) return;
+      row.splice(j, 1);
+      var target = row.indexOf(l.from) + 1;
+      row.splice(target, 0, l.to);
+    });
+  });
+  reindex();
+  return { rows: rows, levels: levels };
+}
+
+function renderTree() {
+  var svg = $('#treeSvg');
+  var hasParent = state.links.some(function (l) { return l.type === 'parent'; });
+  $('#treeEmpty').hidden = !(state.people.length === 0 || !hasParent);
+  if (!state.people.length) { svg.innerHTML = ''; return; }
+
+  var depth = computeDepths();
+  var ord = orderRows(depth);
+  var rows = ord.rows, levels = ord.levels;
+
+  var pos = {};
+  var widest = Math.max.apply(null, levels.map(function (d) { return rows[d].length; }));
+  var rowW = widest * (NODE_W + COL_GAP);
+
+  levels.forEach(function (d, ri) {
+    var row = rows[d];
+    var w = row.length * (NODE_W + COL_GAP);
+    var offset = (rowW - w) / 2;
+    row.forEach(function (id, i) {
+      pos[id] = {
+        x: offset + i * (NODE_W + COL_GAP) + NODE_W / 2,
+        y: ri * (NODE_H + GEN_GAP) + NODE_H / 2
+      };
+    });
+  });
+
+  var showSpouse = $('#treeShowSpouse').checked;
+  var showSibling = $('#treeShowSibling').checked;
+  var showDates = $('#treeShowDates').checked;
+
+  var edges = '';
+
+  state.links.filter(function (l) { return l.type === 'parent'; }).forEach(function (l) {
+    var a = pos[l.from], b = pos[l.to];
+    if (!a || !b) return;
+    var y1 = a.y + NODE_H / 2, y2 = b.y - NODE_H / 2;
+    var mid = y1 + (y2 - y1) * 0.55;
+    edges += '<path class="edge" d="M' + a.x + ' ' + y1 + ' V' + mid +
+      ' H' + b.x + ' V' + y2 + '" stroke="' + LINK_TYPES.parent.color +
+      '" stroke-width="1.6"/>';
+  });
+
+  if (showSpouse) {
+    state.links.filter(function (l) { return l.type === 'spouse'; }).forEach(function (l) {
+      var a = pos[l.from], b = pos[l.to];
+      if (!a || !b) return;
+      if (Math.abs(a.y - b.y) < 1) {
+        var left = a.x < b.x ? a : b, right = a.x < b.x ? b : a;
+        edges += '<path class="edge" d="M' + (left.x + NODE_W / 2) + ' ' + left.y +
+          ' H' + (right.x - NODE_W / 2) + '" stroke="' + LINK_TYPES.spouse.color +
+          '" stroke-width="2.4"/>';
+      } else {
+        edges += '<path class="edge" d="M' + a.x + ' ' + a.y + ' L' + b.x + ' ' + b.y +
+          '" stroke="' + LINK_TYPES.spouse.color +
+          '" stroke-width="1.6" stroke-dasharray="5 4"/>';
+      }
+    });
+  }
+
+  if (showSibling) {
+    state.links.filter(function (l) { return l.type === 'sibling'; }).forEach(function (l) {
+      var a = pos[l.from], b = pos[l.to];
+      if (!a || !b) return;
+      edges += '<path class="edge" d="M' + a.x + ' ' + (a.y + 6) + ' Q' +
+        ((a.x + b.x) / 2) + ' ' + (a.y + 40) + ' ' + b.x + ' ' + (b.y + 6) +
+        '" stroke="' + LINK_TYPES.sibling.color +
+        '" stroke-width="1.4" stroke-dasharray="3 3"/>';
+    });
+  }
+
+  var nodes = '';
+  state.people.forEach(function (p) {
+    var pt = pos[p.id];
+    if (!pt) return;
+    var col = GENDER_COLOR[p.gender] || GENDER_COLOR.unspecified;
+    var cls = 'node' + (matchesSearch(p) ? '' : ' dim') + (p.id === selectedId ? ' sel' : '');
+    var x = pt.x - NODE_W / 2, y = pt.y - NODE_H / 2;
+    var url = avatarUrl(p);
+    var clip = 'clip' + p.id;
+
+    nodes += '<g class="' + cls + '" data-id="' + p.id + '">' +
+      '<rect x="' + x + '" y="' + y + '" width="' + NODE_W + '" height="' + NODE_H +
+      '" rx="9" fill="#1c2330" stroke="' + col + '" stroke-width="1.4"/>' +
+      '<rect x="' + x + '" y="' + y + '" width="4" height="' + NODE_H +
+      '" rx="2" fill="' + col + '"/>';
+
+    if (url) {
+      nodes += '<defs><clipPath id="' + clip + '"><circle cx="' + (x + 26) +
+        '" cy="' + (y + NODE_H / 2) + '" r="15"/></clipPath></defs>' +
+        '<image href="' + url + '" x="' + (x + 11) + '" y="' + (y + NODE_H / 2 - 15) +
+        '" width="30" height="30" clip-path="url(#' + clip +
+        ')" preserveAspectRatio="xMidYMid slice"/>';
+    } else {
+      nodes += '<circle cx="' + (x + 26) + '" cy="' + (y + NODE_H / 2) +
+        '" r="15" fill="' + col + '" opacity=".25"/>' +
+        '<text x="' + (x + 26) + '" y="' + (y + NODE_H / 2 + 4) +
+        '" text-anchor="middle" style="font-size:11px;font-weight:700;fill:' +
+        col + '">' + esc(initials(p.name)) + '</text>';
+    }
+
+    var label = p.name.length > 17 ? p.name.slice(0, 16) + '\u2026' : p.name;
+    nodes += '<text x="' + (x + 48) + '" y="' +
+      (y + (showDates && lifespan(p) ? 23 : 31)) + '">' + esc(label) + '</text>';
+    if (showDates && lifespan(p)) {
+      nodes += '<text class="meta" x="' + (x + 48) + '" y="' + (y + 38) + '">' +
+        esc(lifespan(p)) + '</text>';
+    }
+    nodes += '<title>' + esc(p.name) +
+      (p.occupation ? ' \u2014 ' + esc(p.occupation) : '') + '</title></g>';
+  });
+
+  svg.setAttribute('viewBox', '-40 -40 ' + (rowW + 80) + ' ' +
+    (levels.length * (NODE_H + GEN_GAP) + 80));
+  svg.innerHTML = edges + nodes;
+
+  svg.querySelectorAll('.node').forEach(function (n) {
+    n.addEventListener('click', function (e) {
+      e.stopPropagation(); selectPerson(n.dataset.id);
+    });
+    n.addEventListener('dblclick', function (e) {
+      e.stopPropagation(); openPersonModal(n.dataset.id);
+    });
+  });
+
+  attachPanZoom(svg);
+}
+
+function activeLinks() {
+  return state.links.filter(function (l) { return typeEnabled[l.type]; });
+}
+
+function renderWeb() {
+  var svg = $('#webSvg');
+  if (!state.people.length) { svg.innerHTML = ''; return; }
+
+  var W = 900, H = 620;
+  var prev = {};
+  webNodes.forEach(function (n) { prev[n.id] = n; });
+
+  webNodes = state.people.map(function (p, i) {
+    var old = prev[p.id];
+    var ang = (i / state.people.length) * Math.PI * 2;
+    return {
+      id: p.id,
+      x: old ? old.x : W / 2 + Math.cos(ang) * 200,
+      y: old ? old.y : H / 2 + Math.sin(ang) * 200,
+      vx: 0, vy: 0, fixed: false
+    };
+  });
+
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  simulate(W, H, 300);
+  drawWeb(svg, W, H);
+  attachPanZoom(svg);
+}
+
+function simulate(W, H, steps) {
+  var idx = {};
+  webNodes.forEach(function (n, i) { idx[n.id] = i; });
+  var ls = activeLinks().filter(function (l) {
+    return idx[l.from] !== undefined && idx[l.to] !== undefined;
+  });
+  var n = webNodes.length;
+
+  for (var t = 0; t < steps; t++) {
+    var cool = 1 - t / steps;
+
+    for (var i = 0; i < n; i++) {
+      for (var j = i + 1; j < n; j++) {
+        var a = webNodes[i], b = webNodes[j];
+        var dx = b.x - a.x, dy = b.y - a.y;
+        var d2 = dx * dx + dy * dy;
+        if (d2 < 1) { d2 = 1; dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
+        var d = Math.sqrt(d2);
+        var f = 5200 / d2;
+        var fx = (dx / d) * f, fy = (dy / d) * f;
+        a.vx -= fx; a.vy -= fy;
+        b.vx += fx; b.vy += fy;
+      }
+    }
+
+    ls.forEach(function (l) {
+      var a = webNodes[idx[l.from]], b = webNodes[idx[l.to]];
+      var dx = b.x - a.x, dy = b.y - a.y;
+      var d = Math.sqrt(dx * dx + dy * dy) || 1;
+      var rest = LINK_TYPES[l.type].cat === 'family' ? 110 : 160;
+      var f = (d - rest) * 0.045;
+      var fx = (dx / d) * f, fy = (dy / d) * f;
+      a.vx += fx; a.vy += fy;
+      b.vx -= fx; b.vy -= fy;
+    });
+
+    webNodes.forEach(function (p) {
+      if (p.fixed) { p.vx = 0; p.vy = 0; return; }
+      p.vx += (W / 2 - p.x) * 0.0018;
+      p.vy += (H / 2 - p.y) * 0.0018;
+      p.vx *= 0.82 * cool + 0.1;
+      p.vy *= 0.82 * cool + 0.1;
+      p.x += Math.max(-24, Math.min(24, p.vx));
+      p.y += Math.max(-24, Math.min(24, p.vy));
+      p.x = Math.max(40, Math.min(W - 40, p.x));
+      p.y = Math.max(40, Math.min(H - 40, p.y));
+    });
+  }
+}
+
+function drawWeb(svg, W, H) {
+  var byId = {};
+  webNodes.forEach(function (n) { byId[n.id] = n; });
+
+  var defs = '<defs>';
+  Object.keys(LINK_TYPES).forEach(function (k) {
+    defs += '<marker id="arw-' + k + '" viewBox="0 0 10 10" refX="20" refY="5" ' +
+      'markerWidth="5" markerHeight="5" orient="auto-start-reverse">' +
+      '<path d="M0 0 L10 5 L0 10 z" fill="' + LINK_TYPES[k].color + '"/></marker>';
+  });
+  defs += '</defs>';
+
+  var edges = '';
+  activeLinks().forEach(function (l) {
+    var a = byId[l.from], b = byId[l.to];
+    if (!a || !b) return;
+    var t = LINK_TYPES[l.type];
+    var touches = selectedId && (l.from === selectedId || l.to === selectedId);
+    var dim = (selectedId && !touches) ? ' dim' : '';
+    var dash = (l.type === 'enemy' || l.type === 'rival') ? ' stroke-dasharray="6 4"' : '';
+    edges += '<path class="edge' + dim + '" d="M' + a.x + ' ' + a.y +
+      ' L' + b.x + ' ' + b.y + '" stroke="' + t.color +
+      '" stroke-width="' + (touches ? 2.6 : 1.5) + '"' + dash +
+      (t.directed ? ' marker-end="url(#arw-' + l.type + ')"' : '') + '>' +
+      '<title>' + esc(nameOf(l.from)) + ' \u2014 ' + esc(t.label) + ' \u2014 ' +
+      esc(nameOf(l.to)) + (l.note ? ' (' + esc(l.note) + ')' : '') +
+      '</title></path>';
+  });
+
+  var nodes = '';
+  state.people.forEach(function (p) {
+    var nd = byId[p.id];
+    if (!nd) return;
+    var col = GENDER_COLOR[p.gender] || GENDER_COLOR.unspecified;
+    var deg = linksOf(p.id).filter(function (l) { return typeEnabled[l.type]; }).length;
+    var r = 15 + Math.min(10, deg * 1.6);
+    var cls = 'node' + (matchesSearch(p) ? '' : ' dim') + (p.id === selectedId ? ' sel' : '');
+    var url = avatarUrl(p);
+    var clip = 'wclip' + p.id;
+
+    nodes += '<g class="' + cls + '" data-id="' + p.id + '">';
+    if (url) {
+      nodes += '<defs><clipPath id="' + clip + '"><circle cx="' + nd.x +
+        '" cy="' + nd.y + '" r="' + r + '"/></clipPath></defs>' +
+        '<image href="' + url + '" x="' + (nd.x - r) + '" y="' + (nd.y - r) +
+        '" width="' + (r * 2) + '" height="' + (r * 2) +
+        '" clip-path="url(#' + clip + ')" preserveAspectRatio="xMidYMid slice"/>' +
+        '<circle cx="' + nd.x + '" cy="' + nd.y + '" r="' + r +
+        '" fill="none" stroke="' + col + '" stroke-width="2"/>';
+    } else {
+      nodes += '<circle cx="' + nd.x + '" cy="' + nd.y + '" r="' + r +
+        '" fill="#1c2330" stroke="' + col + '" stroke-width="2"/>' +
+        '<text x="' + nd.x + '" y="' + (nd.y + 4) +
+        '" text-anchor="middle" style="font-size:11px;font-weight:700;fill:' +
+        col + '">' + esc(initials(p.name)) + '</text>';
+    }
+    nodes += '<text x="' + nd.x + '" y="' + (nd.y + r + 14) +
+      '" text-anchor="middle">' + esc(p.name) + '</text>' +
+      '<title>' + esc(p.name) + ' \u2014 ' + deg + ' link' +
+      (deg === 1 ? '' : 's') + '</title></g>';
+  });
+
+  svg.innerHTML = defs + edges + nodes;
+
+  svg.querySelectorAll('.node').forEach(function (g) {
+    g.addEventListener('click', function (e) {
+      e.stopPropagation(); selectPerson(g.dataset.id);
+    });
+    g.addEventListener('dblclick', function (e) {
+      e.stopPropagation(); openPersonModal(g.dataset.id);
+    });
+  });
+}
+
+function renderTypeFilters() {
+  var box = $('#typeFilters');
+  if (!box) return;
+  box.innerHTML = Object.keys(LINK_TYPES).map(function (k) {
+    var t = LINK_TYPES[k];
+    var count = state.links.filter(function (l) { return l.type === k; }).length;
+    return '<button class="tf ' + (typeEnabled[k] ? 'on' : 'off') +
+      '" data-type="' + k + '"><span class="dot" style="background:' +
+      t.color + '"></span>' + esc(t.short) + ' (' + count + ')</button>';
+  }).join('');
+  box.querySelectorAll('.tf').forEach(function (b) {
+    b.onclick = function () {
+      typeEnabled[b.dataset.type] = !typeEnabled[b.dataset.type];
+      renderTypeFilters();
+      renderWeb();
+    };
+  });
+}
+
+function renderGallery() {
+  var grid = $('#galleryGrid');
+  var total = 0;
+  state.people.forEach(function (p) { total += (p.photos || []).length; });
+  $('#galleryStats').textContent = total + ' photo' + (total === 1 ? '' : 's') +
+    ' across ' + state.people.length + ' people';
+
+  grid.innerHTML = state.people.slice().sort(function (a, b) {
+    return ((b.photos || []).length - (a.photos || []).length) ||
+           a.name.localeCompare(b.name);
+  }).map(function (p) {
+    var url = avatarUrl(p);
+    var n = (p.photos || []).length;
+    return '<div class="gcard" data-id="' + p.id + '"><div class="gcard-img">' +
+      (url ? '<img src="' + url + '" alt="">' : '<div class="ph">&#9786;</div>') +
+      (n ? '<span class="gcard-badge">' + n + '</span>' : '') +
+      '</div><div class="gcard-body"><strong>' + esc(p.name) + '</strong><span>' +
+      esc(p.nickname || lifespan(p) || p.occupation || 'No details') +
+      '</span></div></div>';
+  }).join('');
+
+  grid.querySelectorAll('.gcard').forEach(function (c) {
+    c.onclick = function () {
+      var p = person(c.dataset.id);
+      selectPerson(p.id);
+      if (p.photos && p.photos.length) openLightbox(p.photos, 0, p.name);
+      else openPersonModal(p.id);
+    };
+  });
+}
+
+function renderDirectory() {
+  var tb = $('#dirBody');
+  var rows = state.people.slice().sort(function (a, b) {
+    var k = dirSort.key, av, bv;
+    if (k === 'links') { av = linksOf(a.id).length; bv = linksOf(b.id).length; }
+    else if (k === 'photos') { av = (a.photos || []).length; bv = (b.photos || []).length; }
+    else {
+      av = String(a[k] || '').toLowerCase();
+      bv = String(b[k] || '').toLowerCase();
+    }
+    if (av < bv) return -dirSort.dir;
+    if (av > bv) return dirSort.dir;
+    return 0;
+  });
+
+  tb.innerHTML = rows.map(function (p) {
+    return '<tr data-id="' + p.id + '" style="' +
+      (matchesSearch(p) ? '' : 'opacity:.3') + '">' +
+      '<td>' + esc(p.name) +
+      (p.nickname ? ' <span class="muted small">&ldquo;' + esc(p.nickname) +
+        '&rdquo;</span>' : '') + '</td>' +
+      '<td class="muted">' + esc(p.gender === 'unspecified' ? '\u2014' : p.gender) + '</td>' +
+      '<td class="muted">' + esc(p.birth || '\u2014') + '</td>' +
+      '<td class="muted">' + esc(p.death || '\u2014') + '</td>' +
+      '<td class="muted">' + esc(p.occupation || '\u2014') + '</td>' +
+      '<td>' + linksOf(p.id).length + '</td>' +
+      '<td>' + (p.photos || []).length + '</td>' +
+      '<td><button class="btn tiny" data-edit="' + p.id + '">Edit</button></td></tr>';
+  }).join('');
+
+  tb.querySelectorAll('tr').forEach(function (tr) {
+    tr.onclick = function () { selectPerson(tr.dataset.id); };
+  });
+  tb.querySelectorAll('[data-edit]').forEach(function (b) {
+    b.onclick = function (e) { e.stopPropagation(); openPersonModal(b.dataset.edit); };
+  });
+}
+
+function attachPanZoom(svg) {
+  if (svg.dataset.pz) return;
+  svg.dataset.pz = '1';
+  var panning = false, start = null, vb0 = null;
+
+  svg.addEventListener('pointerdown', function (e) {
+    if (e.target.closest && e.target.closest('.node')) return;
+    panning = true;
+    svg.classList.add('dragging');
+    start = { x: e.clientX, y: e.clientY };
+    vb0 = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+  });
+
+  svg.addEventListener('pointermove', function (e) {
+    if (!panning || !vb0) return;
+    var r = svg.getBoundingClientRect();
+    var dx = (e.clientX - start.x) / r.width * vb0[2];
+    var dy = (e.clientY - start.y) / r.height * vb0[3];
+    svg.setAttribute('viewBox',
+      (vb0[0] - dx) + ' ' + (vb0[1] - dy) + ' ' + vb0[2] + ' ' + vb0[3]);
+  });
+
+  function stop() { panning = false; svg.classList.remove('dragging'); }
+  svg.addEventListener('pointerup', stop);
+  svg.addEventListener('pointerleave', stop);
+  svg.addEventListener('pointercancel', stop);
+
+  svg.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    zoomSvg(svg, e.deltaY > 0 ? 1.12 : 0.89, e.clientX, e.clientY);
+  }, { passive: false });
+
+  /* pinch zoom */
+  var d0 = 0, pvb = null;
+  function dist(t) {
+    return Math.sqrt(
+      Math.pow(t[0].clientX - t[1].clientX, 2) +
+      Math.pow(t[0].clientY - t[1].clientY, 2));
+  }
+  svg.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 2) return;
+    d0 = dist(e.touches);
+    pvb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+  }, { passive: true });
+
+  svg.addEventListener('touchmove', function (e) {
+    if (e.touches.length !== 2 || !pvb || !d0) return;
+    e.preventDefault();
+    var k = d0 / dist(e.touches);
+    var r = svg.getBoundingClientRect();
+    var cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    var cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    var px = (cx - r.left) / r.width, py = (cy - r.top) / r.height;
+    var nw = Math.max(80, Math.min(12000, pvb[2] * k));
+    var nh = Math.max(80, Math.min(12000, pvb[3] * k));
+    svg.setAttribute('viewBox',
+      (pvb[0] + (pvb[2] - nw) * px) + ' ' +
+      (pvb[1] + (pvb[3] - nh) * py) + ' ' + nw + ' ' + nh);
+  }, { passive: false });
+
+  svg.addEventListener('touchend', function (e) {
+    if (e.touches.length < 2) { d0 = 0; pvb = null; }
+  }, { passive: true });
+}
+
+function zoomSvg(svg, k, cx, cy) {
+  var vb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+  var r = svg.getBoundingClientRect();
+  var px = cx === undefined ? 0.5 : (cx - r.left) / r.width;
+  var py = cy === undefined ? 0.5 : (cy - r.top) / r.height;
+  var nw = vb[2] * k, nh = vb[3] * k;
+  svg.setAttribute('viewBox',
+    (vb[0] + (vb[2] - nw) * px) + ' ' + (vb[1] + (vb[3] - nh) * py) +
+    ' ' + nw + ' ' + nh);
+}
+
+function openPersonModal(id) {
+  editingId = id || null;
+  var p = id ? person(id) : null;
+  $('#personModalTitle').textContent = p ? 'Edit person' : 'Add person';
+  $('#pName').value = p ? p.name : '';
+  $('#pNick').value = p ? (p.nickname || '') : '';
+  $('#pGender').value = p ? (p.gender || 'unspecified') : 'unspecified';
+  $('#pOccupation').value = p ? (p.occupation || '') : '';
+  $('#pBirth').value = p ? (p.birth || '') : '';
+  $('#pDeath').value = p ? (p.death || '') : '';
+  $('#pBio').value = p ? (p.bio || '') : '';
+  draftPhotos = p ? (p.photos || []).slice() : [];
+  draftAvatar = p ? (p.avatar || 0) : 0;
+  $('#btnDeletePerson').hidden = !p;
+  renderPhotoStrip();
+  $('#personModal').hidden = false;
+}
+
+function renderPhotoStrip() {
+  var strip = $('#photoStrip');
+  if (!draftPhotos.length) {
+    strip.innerHTML = '<span class="muted small">No photos yet.</span>';
+    return;
+  }
+  strip.innerHTML = draftPhotos.map(function (src, i) {
+    return '<div class="ps-item' + (i === draftAvatar ? ' is-avatar' : '') + '">' +
+      '<img src="' + src + '" data-i="' + i + '" alt="">' +
+      '<button data-del="' + i + '">&times;</button></div>';
+  }).join('');
+
+  strip.querySelectorAll('img').forEach(function (im) {
+    im.onclick = function () { draftAvatar = +im.dataset.i; renderPhotoStrip(); };
+  });
+  strip.querySelectorAll('[data-del]').forEach(function (b) {
+    b.onclick = function () {
+      draftPhotos.splice(+b.dataset.del, 1);
+      if (draftAvatar >= draftPhotos.length) draftAvatar = 0;
+      renderPhotoStrip();
+    };
+  });
+}
+
+function openLinkModal(preselectFrom) {
+  if (state.people.length < 2) { toast('Add at least two people first.'); return; }
+
+  $('#lType').innerHTML = Object.keys(LINK_TYPES).map(function (k) {
+    return '<option value="' + k + '">' + esc(LINK_TYPES[k].label) + '</option>';
+  }).join('');
+
+  var opts = state.people.slice().sort(function (a, b) {
+    return a.name.localeCompare(b.name);
+  }).map(function (p) {
+    return '<option value="' + p.id + '">' + esc(p.name) + '</option>';
+  }).join('');
+
+  $('#lFrom').innerHTML = opts;
+  $('#lTo').innerHTML = opts;
+  if (preselectFrom) $('#lFrom').value = preselectFrom;
+  var others = state.people.filter(function (p) { return p.id !== $('#lFrom').value; });
+  if (others.length) $('#lTo').value = others[0].id;
+  $('#lNote').value = '';
+
+  syncLinkLabels();
+  $('#linkModal').hidden = false;
+}
+
+function syncLinkLabels() {
+  var t = LINK_TYPES[$('#lType').value];
+  $('#lFromLabel').textContent = t.fromLabel;
+  $('#lToLabel').textContent = t.toLabel;
+  $('#lHint').textContent = t.hint || '';
+}
+
+function openLightbox(photos, idx, title) {
+  lightboxSet = photos; lightboxIdx = idx || 0; lightboxTitle = title || '';
+  showLightbox();
+  $('#lightbox').hidden = false;
+}
+
+function showLightbox() {
+  if (!lightboxSet.length) return;
+  lightboxIdx = (lightboxIdx + lightboxSet.length) % lightboxSet.length;
+  $('#lbImg').src = lightboxSet[lightboxIdx];
+  $('#lbCaption').textContent = lightboxTitle + '  \u2014  ' +
+    (lightboxIdx + 1) + ' / ' + lightboxSet.length;
+}
+
+function loadSample() {
+  state = { people: [], links: [], seq: 1 };
+
+  function mk(o) {
+    var p = {
+      id: uid('p'), name: '', nickname: '', gender: 'unspecified',
+      occupation: '', birth: '', death: '', bio: '', photos: [], avatar: 0
+    };
+    for (var k in o) p[k] = o[k];
+    state.people.push(p);
+    return p.id;
+  }
+
+  var eldric = mk({ name:'Eldric Thorne', gender:'male', birth:'Year 1', death:'Year 62',
+    occupation:'Blacksmith', bio:'Settled the family in the eastern quarter.' });
+  var mira   = mk({ name:'Mira Thorne', gender:'female', birth:'Year 4', death:'Year 70',
+    occupation:'Weaver' });
+  var caspar = mk({ name:'Caspar Thorne', gender:'male', birth:'Year 26',
+    occupation:'Royal Guard' });
+  var lysa   = mk({ name:'Lysa Thorne', gender:'female', birth:'Year 29',
+    occupation:'Herbalist' });
+  var orin   = mk({ name:'Orin Thorne', gender:'male', birth:'Year 31',
+    occupation:'Merchant' });
+  var selene = mk({ name:'Selene Vayne', gender:'female', birth:'Year 33',
+    occupation:'Noble', bio:'Married into the family from the Vayne house.' });
+  var piper  = mk({ name:'Piper Thorne', gender:'female', birth:'Year 54',
+    occupation:'Apprentice smith' });
+  var rowan  = mk({ name:'Rowan Thorne', gender:'nonbinary', birth:'Year 57',
+    occupation:'Scribe' });
+  var garrick= mk({ name:'Garrick Hale', gender:'male', birth:'Year 24',
+    occupation:'Rival merchant', bio:'Opened a competing stall in the market square.' });
+  var nessa  = mk({ name:'Nessa Brook', gender:'female', birth:'Year 55',
+    occupation:'Ward of the Thornes', bio:'Orphaned in Year 61, taken in by Lysa.' });
+
+  function L(t, a, b, n) {
+    state.links.push({ id: uid('l'), type: t, from: a, to: b, note: n || '' });
+  }
+
+  L('spouse', eldric, mira);
+  L('parent', eldric, caspar); L('parent', mira, caspar);
+  L('parent', eldric, lysa);   L('parent', mira, lysa);
+  L('parent', eldric, orin);   L('parent', mira, orin);
+  L('spouse', orin, selene);
+  L('parent', orin, piper);    L('parent', selene, piper);
+  L('parent', orin, rowan);    L('parent', selene, rowan);
+
+  L('guardian', lysa, nessa, 'Taken in Year 61');
+  L('mentor', eldric, piper, 'Smithing apprenticeship');
+  L('mentor', eldric, garrick, 'Trained him before the split');
+  L('rival', orin, garrick, 'Competing market stalls');
+  L('enemy', garrick, caspar, 'Accused him of theft in Year 49');
+  L('friend', lysa, selene);
+  L('friend', rowan, nessa);
+  L('ally', caspar, orin, 'Guard the family caravan together');
+  L('colleague', piper, nessa);
+  L('sibling', lysa, caspar);
+}
+
+/* -------------------------------------------------- event wiring */
+
+function wire() {
+  $$('#viewTabs .tab').forEach(function (tab) {
+    tab.onclick = function () {
+      $$('#viewTabs .tab').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      currentView = tab.dataset.view;
+      $$('.view').forEach(function (v) { v.hidden = true; });
+      $('#view-' + currentView).hidden = false;
+      renderAll();
+    };
+  });
+
+  $('#btnAddPerson').onclick = function () { openPersonModal(null); };
+  $('#btnAddLink').onclick = function () { openLinkModal(selectedId); };
+  $('#btnReheat').onclick = function () { webNodes = []; renderWeb(); };
+  $('#lType').onchange = syncLinkLabels;
+
+  $('#searchBox').addEventListener('input', function (e) {
+    searchTerm = e.target.value.trim().toLowerCase();
+    renderAll();
+  });
+
+  ['treeShowSpouse', 'treeShowSibling', 'treeShowDates'].forEach(function (id) {
+    $('#' + id).addEventListener('change', renderTree);
+  });
+
+  $$('[data-close]').forEach(function (b) {
+    b.onclick = function () { $('#' + b.dataset.close).hidden = true; };
+  });
+
+  $$('.modal-backdrop').forEach(function (bd) {
+    bd.addEventListener('click', function (e) { if (e.target === bd) bd.hidden = true; });
+  });
+
+  $$('.dir-table th[data-sort]').forEach(function (th) {
+    th.onclick = function () {
+      var k = th.dataset.sort;
+      dirSort.dir = (dirSort.key === k) ? -dirSort.dir : 1;
+      dirSort.key = k;
+      renderDirectory();
+    };
+  });
+
+  $$('[data-zoom]').forEach(function (b) {
+    b.onclick = function () {
+      var svg = b.dataset.zoom === 'tree' ? $('#treeSvg') : $('#webSvg');
+      if (b.dataset.dir === 'in') zoomSvg(svg, 0.8);
+      else if (b.dataset.dir === 'out') zoomSvg(svg, 1.25);
+      else if (b.dataset.zoom === 'tree') renderTree();
+      else { webNodes = []; renderWeb(); }
+    };
+  });
+
+  $('#pPhotos').addEventListener('change', function (e) {
+    var files = Array.prototype.slice.call(e.target.files || []);
+    if (!files.length) return;
+    toast('Processing ' + files.length + ' image' + (files.length === 1 ? '' : 's'));
+    var chain = Promise.resolve();
+    files.forEach(function (f) {
+      chain = chain.then(function () {
+        return resizeImage(f, 640).then(function (url) {
+          if (url) draftPhotos.push(url);
+        });
+      });
+    });
+    chain.then(function () {
+      e.target.value = '';
+      renderPhotoStrip();
+      toast('Photos added. Remember to Save.');
+    });
+  });
+
+  $('#btnSavePerson').onclick = function () {
+    var name = $('#pName').value.trim();
+    if (!name) { toast('A name is required.'); return; }
+
+    var data = {
+      name: name,
+      nickname: $('#pNick').value.trim(),
+      gender: $('#pGender').value,
+      occupation: $('#pOccupation').value.trim(),
+      birth: $('#pBirth').value.trim(),
+      death: $('#pDeath').value.trim(),
+      bio: $('#pBio').value.trim(),
+      photos: draftPhotos.slice(),
+      avatar: draftAvatar
+    };
+
+    if (editingId) {
+      var p = person(editingId);
+      for (var k in data) p[k] = data[k];
+      selectedId = editingId;
+    } else {
+      data.id = uid('p');
+      state.people.push(data);
+      selectedId = data.id;
+    }
+    $('#personModal').hidden = true;
+    persistAndRender();
+    toast('Saved.');
+  };
+
+  $('#btnDeletePerson').onclick = function () {
+    if (!editingId) return;
+    if (!confirm('Delete this person and all their relationships?')) return;
+    removePerson(editingId);
+    $('#personModal').hidden = true;
+    persistAndRender();
+    toast('Deleted.');
+  };
+
+  $('#btnSaveLink').onclick = function () {
+    var from = $('#lFrom').value, to = $('#lTo').value;
+    if (from === to) { toast('Pick two different people.'); return; }
+    if (addLink($('#lType').value, from, to, $('#lNote').value.trim())) {
+      $('#linkModal').hidden = true;
+      persistAndRender();
+      toast('Relationship added.');
+    }
+  };
+
+  $('#lbClose').onclick = function () { $('#lightbox').hidden = true; };
+  $('#lbPrev').onclick = function () { lightboxIdx--; showLightbox(); };
+  $('#lbNext').onclick = function () { lightboxIdx++; showLightbox(); };
+  $('#lightbox').addEventListener('click', function (e) {
+    if (e.target.id === 'lightbox') $('#lightbox').hidden = true;
+  });
+
+  $('#btnMenu').onclick = function (e) {
+    e.stopPropagation();
+    $('#dataMenu').hidden = !$('#dataMenu').hidden;
+  };
+  document.addEventListener('click', function () { $('#dataMenu').hidden = true; });
+  $('#dataMenu').addEventListener('click', function (e) { e.stopPropagation(); });
+
+  $('#btnExport').onclick = function () {
+    var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'kinweave-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    $('#dataMenu').hidden = true;
+    toast('Exported.');
+  };
+
+  $('#btnImport').onclick = function () {
+    $('#importFile').click();
+    $('#dataMenu').hidden = true;
+  };
+
+  $('#importFile').addEventListener('change', function (e) {
+    var f = e.target.files[0];
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var d = JSON.parse(r.result);
+        if (!d || !(d.people instanceof Array)) throw new Error('bad');
+        if (!confirm('Replace all current data with the imported file?')) return;
+        state = {
+          people: d.people,
+          links: (d.links instanceof Array) ? d.links : [],
+          seq: d.seq || 1000
+        };
+        state.people.forEach(function (p) {
+          p.photos = p.photos || [];
+          p.avatar = p.avatar || 0;
+        });
+        selectedId = null; webNodes = [];
+        persistAndRender();
+        toast('Imported ' + state.people.length + ' people.');
+      } catch (err) { toast('That file could not be read.'); }
+    };
+    r.readAsText(f);
+    e.target.value = '';
+  });
+
+  $('#btnClear').onclick = function () {
+    if (!confirm('Delete everything? This cannot be undone.')) return;
+    state = { people: [], links: [], seq: 1 };
+    selectedId = null; webNodes = [];
+    persistAndRender();
+    toast('All data cleared.');
+  };
+
+  $('#btnSample').onclick = function () {
+    if (state.people.length &&
+        !confirm('Replace current data with the sample set?')) return;
+    loadSample();
+    persistAndRender();
+    toast('Sample data loaded.');
+  };
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      $$('.modal-backdrop').forEach(function (m) { m.hidden = true; });
+      $('#lightbox').hidden = true;
+      $('#dataMenu').hidden = true;
+    }
+    if (!$('#lightbox').hidden) {
+      if (e.key === 'ArrowLeft') { lightboxIdx--; showLightbox(); }
+      if (e.key === 'ArrowRight') { lightboxIdx++; showLightbox(); }
+    }
+  });
+}
+
+/* -------------------------------------------------- drawers */
+
+function wireDrawers() {
+  var sidebar = $('#sidebar');
+  var detail = $('#detailPanel');
+  var scrim = $('#drawerScrim');
+
+  function anyOpen() {
+    return sidebar.classList.contains('open') || detail.classList.contains('open');
+  }
+  function syncScrim() { scrim.hidden = !anyOpen(); }
+
+  function open(el) {
+    if (el === sidebar) detail.classList.remove('open');
+    if (el === detail) sidebar.classList.remove('open');
+    el.classList.add('open');
+    syncScrim();
+  }
+  function closeAll() {
+    sidebar.classList.remove('open');
+    detail.classList.remove('open');
+    syncScrim();
+  }
+
+  $('#btnDrawerPeople').onclick = function () {
+    if (sidebar.classList.contains('open')) closeAll(); else open(sidebar);
+  };
+  $('#btnDrawerDetail').onclick = function () {
+    if (detail.classList.contains('open')) closeAll(); else open(detail);
+  };
+  $$('[data-drawer-close]').forEach(function (b) {
+    b.onclick = function () { closeAll(); };
+  });
+  scrim.onclick = closeAll;
+
+  var narrow = window.matchMedia('(max-width:760px)');
+
+  document.addEventListener('click', function (e) {
+    if (!narrow.matches) return;
+    if (e.target.closest && e.target.closest('#peopleList li')) {
+      setTimeout(function () { open(detail); }, 120);
+    }
+  }, true);
+
+  ['#btnAddPerson', '#btnAddLink'].forEach(function (sel) {
+    var b = $(sel);
+    if (b) b.addEventListener('click', closeAll);
+  });
+}
+
+/* -------------------------------------------------- install prompt */
+
+var deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault();
+  deferredPrompt = e;
+  var b = $('#btnInstall');
+  if (b) b.hidden = false;
+});
+
+/* -------------------------------------------------- boot */
+
+wire();
+wireDrawers();
+
+var btnInstall = $('#btnInstall');
+if (btnInstall) {
+  btnInstall.onclick = function () {
+    $('#dataMenu').hidden = true;
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    deferredPrompt = null;
+    btnInstall.hidden = true;
+  };
+}
+
+if (!load()) loadSample();
+renderAll();
+save();
+
+})();
+</script>
+</body>
+</html>
