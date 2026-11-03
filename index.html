@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>KinWeave &mdash; Family Tree &amp; Relationship Mapper</title>
+
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="KinWeave">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <button class="icon-btn drawer-btn" id="btnDrawerPeople" aria-label="People list">&#9776;</button>
+
+  <div class="brand">
+    <span class="brand-mark">K</span>
+    <div class="brand-text">
+      <h1>KinWeave</h1>
+      <p>Family trees &amp; relationship maps</p>
+    </div>
+  </div>
+
+  <nav class="tabs" id="viewTabs">
+    <button class="tab active" data-view="tree"><span class="ti">&#9696;</span><span class="tl">Tree</span></button>
+    <button class="tab" data-view="web"><span class="ti">&#9735;</span><span class="tl">Web</span></button>
+    <button class="tab" data-view="gallery"><span class="ti">&#9635;</span><span class="tl">Gallery</span></button>
+    <button class="tab" data-view="directory"><span class="ti">&#9776;</span><span class="tl">List</span></button>
+  </nav>
+
+  <div class="topbar-actions">
+    <input type="search" id="searchBox" placeholder="Search people">
+    <button class="btn primary" id="btnAddPerson"><span class="wide-only">+ Person</span><span class="narrow-only">+</span></button>
+    <button class="btn" id="btnAddLink"><span class="wide-only">+ Relationship</span><span class="narrow-only">&#8651;</span></button>
+    <button class="icon-btn drawer-btn" id="btnDrawerDetail" aria-label="Profile panel">&#9432;</button>
+    <div class="menu-wrap">
+      <button class="btn ghost" id="btnMenu" aria-label="Menu">&#8942;</button>
+      <div class="menu" id="dataMenu" hidden>
+        <button id="btnInstall" hidden>&#11015; Install app</button>
+        <button id="btnExport">Export JSON</button>
+        <button id="btnImport">Import JSON</button>
+        <button id="btnSample">Load sample data</button>
+        <button id="btnClear" class="danger">Clear all data</button>
+      </div>
+    </div>
+    <input type="file" id="importFile" accept="application/json" hidden>
+  </div>
+</header>
+
+<div class="drawer-scrim" id="drawerScrim" hidden></div>
+
+<main class="layout">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <h2>People</h2>
+      <span class="count" id="peopleCount">0</span>
+      <button class="icon-btn drawer-close" data-drawer-close="sidebar">&times;</button>
+    </div>
+    <ul class="people-list" id="peopleList"></ul>
+  </aside>
+
+  <section class="stage">
+
+    <!-- TREE VIEW -->
+    <div class="view" id="view-tree">
+      <div class="stage-toolbar">
+        <label class="chk"><input type="checkbox" id="treeShowSpouse" checked> Partners</label>
+        <label class="chk"><input type="checkbox" id="treeShowSibling"> Siblings</label>
+        <label class="chk"><input type="checkbox" id="treeShowDates" checked> Dates</label>
+        <span class="spacer"></span>
+        <button class="btn tiny" data-zoom="tree" data-dir="in">+</button>
+        <button class="btn tiny" data-zoom="tree" data-dir="out">&minus;</button>
+        <button class="btn tiny" data-zoom="tree" data-dir="fit">Fit</button>
+      </div>
+      <svg id="treeSvg" class="canvas"></svg>
+      <p class="empty-hint" id="treeEmpty" hidden>No parent &rarr; child relationships yet. Add people, then link them with a <strong>Parent &rarr; Child</strong> relationship.</p>
+    </div>
+
+    <!-- WEB VIEW -->
+    <div class="view" id="view-web" hidden>
+      <div class="stage-toolbar wrap">
+        <div class="type-filters" id="typeFilters"></div>
+        <span class="spacer"></span>
+        <button class="btn tiny" id="btnReheat">Re-layout</button>
+        <button class="btn tiny" data-zoom="web" data-dir="in">+</button>
+        <button class="btn tiny" data-zoom="web" data-dir="out">&minus;</button>
+        <button class="btn tiny" data-zoom="web" data-dir="fit">Fit</button>
+      </div>
+      <svg id="webSvg" class="canvas"></svg>
+    </div>
+
+    <!-- GALLERY VIEW -->
+    <div class="view" id="view-gallery" hidden>
+      <div class="stage-toolbar">
+        <span class="muted" id="galleryStats"></span>
+      </div>
+      <div class="gallery-grid" id="galleryGrid"></div>
+    </div>
+
+    <!-- DIRECTORY VIEW -->
+    <div class="view" id="view-directory" hidden>
+      <div class="table-wrap">
+        <table class="dir-table">
+          <thead>
+            <tr>
+              <th data-sort="name">Name</th>
+              <th data-sort="gender">Gender</th>
+              <th data-sort="birth">Born</th>
+              <th data-sort="death">Died</th>
+              <th data-sort="occupation">Role</th>
+              <th data-sort="links">Links</th>
+              <th data-sort="photos">Pics</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="dirBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </section>
+
+  <aside class="detail" id="detailPanel">
+    <button class="icon-btn drawer-close detail-close" data-drawer-close="detailPanel">&times;</button>
+    <div class="detail-empty" id="detailEmpty">
+      <p>Select a person to see their profile, gallery and relationships.</p>
+    </div>
+    <div id="detailBody" hidden></div>
+  </aside>
+
+</main>
+
+<!-- PERSON MODAL -->
+<div class="modal-backdrop" id="personModal" hidden>
+  <div class="modal">
+    <header>
+      <h3 id="personModalTitle">Add person</h3>
+      <button class="icon-btn" data-close="personModal">&times;</button>
+    </header>
+    <div class="modal-body">
+      <div class="grid2">
+        <label>Full name<input id="pName" type="text" placeholder="e.g. Mara Vendrell"></label>
+        <label>Nickname / title<input id="pNick" type="text" placeholder="e.g. The Elder"></label>
+        <label>Gender
+          <select id="pGender">
+            <option value="unspecified">Unspecified</option>
+            <option value="female">Female</option>
+            <option value="male">Male</option>
+            <option value="nonbinary">Non-binary</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label>Role / occupation<input id="pOccupation" type="text" placeholder="e.g. Blacksmith"></label>
+        <label>Born<input id="pBirth" type="text" placeholder="Year or free text"></label>
+        <label>Died<input id="pDeath" type="text" placeholder="blank if living"></label>
+      </div>
+      <label>Notes / bio<textarea id="pBio" rows="4" placeholder="Anything worth remembering"></textarea></label>
+
+      <div class="photo-block">
+        <div class="photo-block-head">
+          <strong>Gallery</strong>
+          <label class="btn tiny">
+            + Add photos
+            <input type="file" id="pPhotos" accept="image/*" multiple hidden>
+          </label>
+        </div>
+        <p class="muted small">Images are downscaled to 640px before saving. Tap a photo to set it as the avatar.</p>
+        <div class="photo-strip" id="photoStrip"></div>
+      </div>
+    </div>
+    <footer>
+      <button class="btn danger ghost" id="btnDeletePerson">Delete</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" data-close="personModal">Cancel</button>
+      <button class="btn primary" id="btnSavePerson">Save</button>
+    </footer>
+  </div>
+</div>
+
+<!-- LINK MODAL -->
+<div class="modal-backdrop" id="linkModal" hidden>
+  <div class="modal narrow">
+    <header>
+      <h3>Add relationship</h3>
+      <button class="icon-btn" data-close="linkModal">&times;</button>
+    </header>
+    <div class="modal-body">
+      <label>Type<select id="lType"></select></label>
+      <p class="muted small" id="lHint"></p>
+      <label><span id="lFromLabel">From</span><select id="lFrom"></select></label>
+      <label><span id="lToLabel">To</span><select id="lTo"></select></label>
+      <label>Note (optional)<input id="lNote" type="text" placeholder="e.g. estranged since year 12"></label>
+    </div>
+    <footer>
+      <span class="spacer"></span>
+      <button class="btn ghost" data-close="linkModal">Cancel</button>
+      <button class="btn primary" id="btnSaveLink">Add</button>
+    </footer>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-close" id="lbClose">&times;</button>
+  <button class="lb-nav prev" id="lbPrev">&#8249;</button>
+  <img id="lbImg" alt="">
+  <button class="lb-nav next" id="lbNext">&#8250;</button>
+  <div class="lb-caption" id="lbCaption"></div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js"></script>
+<script src="mobile.js"></script>
+</body>
+</html>

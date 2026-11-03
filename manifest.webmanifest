@@ -1,0 +1,53 @@
+{
+  "name": "KinWeave \u2014 Family Tree & Relationship Mapper",
+  "short_name": "KinWeave",
+  "description": "Build family trees and map friendships, rivalries, guardianships and more, with per-person photo galleries. Works fully offline.",
+  "id": "/kinweave/",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0e1117",
+  "theme_color": "#0e1117",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Family Tree",
+      "url": "./?view=tree"
+    },
+    {
+      "name": "Relationship Web",
+      "url": "./?view=web"
+    },
+    {
+      "name": "Gallery",
+      "url": "./?view=gallery"
+    }
+  ]
+}
